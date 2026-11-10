@@ -8,6 +8,20 @@ from typing import Iterable, Tuple, Any, Callable, Optional
 SAFE_TOOLS = {"Read", "Grep", "Glob", "LS", "Task", "TaskOutput", "AskUserQuestion", "TodoWrite"}
 
 
+def _escape_control_chars(value: str) -> str:
+    """Replace ASCII control/escape bytes with a visible \\xNN sequence.
+
+    tool_name and target can originate from an MCP server's own tool/resource
+    naming, which is not restricted to a safe character set on this side.
+    Printing them unescaped into the approval prompt lets that untrusted text
+    manipulate the terminal (clear/overwrite the line, hide what is really
+    being asked) instead of just being displayed. Covers C0 controls
+    (0x00-0x1F, including ESC) and DEL (0x7F); printable Unicode is left
+    untouched.
+    """
+    return "".join(ch if ch >= " " and ch != "\x7f" else "\\x%02x" % ord(ch) for ch in value)
+
+
 @dataclass
 class PermissionState:
     mode: str = "ask"  # ask | allow | deny | plan
@@ -47,8 +61,10 @@ class PermissionState:
             return False
 
         # interactive prompt
+        safe_tool_name = _escape_control_chars(tool_name)
+        safe_target = _escape_control_chars(target)
         while True:
-            reply = input(f"Allow {tool_name} on '{target}'? [y/N] ").strip().lower()
+            reply = input(f"Allow {safe_tool_name} on '{safe_target}'? [y/N] ").strip().lower()
             if reply in {"y", "yes"}:
                 self.approve(tool_name, target)
                 return True
